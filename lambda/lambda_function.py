@@ -39,6 +39,11 @@ from const import *
 
 HOME_ASSISTANT_URL = HOME_ASSISTANT_URL.rstrip('/')
 
+http = urllib3.PoolManager(
+    cert_reqs='CERT_REQUIRED' if VERIFY_SSL else 'CERT_NONE',
+    timeout=urllib3.Timeout(connect=10.0, read=10.0)
+)
+
 logger = get_logger(DEBUG)
 
 
@@ -56,13 +61,6 @@ def _handle_response(handler, speak_out: Optional[str]):
     if speak_out:
         return handler.response_builder.speak(speak_out).response
     return handler.response_builder.response
-
-
-def _init_http_pool():
-    return urllib3.PoolManager(
-        cert_reqs='CERT_REQUIRED' if VERIFY_SSL else 'CERT_NONE',
-        timeout=urllib3.Timeout(connect=10.0, read=10.0)
-    )
 
 
 def _string_to_bool(value: Optional[str], default: bool = False) -> bool:
@@ -96,7 +94,6 @@ class HomeAssistant:
     def __init__(self, handler_input: HandlerInput):
         # Define class vars
         self.ha_state = None
-        self.http = _init_http_pool()
 
         # Gets data from language_strings.json file according to the locale
         self.language_strings = handler_input.attributes_manager.request_attributes["_"]
@@ -177,7 +174,7 @@ class HomeAssistant:
             headers = headers.update(extra_headers)
 
         url = self._build_url(*path)
-        response = self.http.request('GET', url, headers=headers)
+        response = http.request('GET', url, headers=headers)
 
         logger.debug(f'Raw response: {response.data}')
 
@@ -203,7 +200,7 @@ class HomeAssistant:
             headers = headers.update(extra_headers)
 
         url = self._build_url(*path)
-        response = self.http.request('POST', url, headers=headers,
+        response = http.request('POST', url, headers=headers,
                                      body=json.dumps(body).encode('utf-8'))
 
         errors: Union[bool, str] = self._check_response_errors(response)
@@ -240,22 +237,6 @@ class HomeAssistant:
 
         logger.debug("Clearing Home Assistant local state")
         self.ha_state = None
-
-    def get_ha_state(self):
-        """
-            Updates the local HA state with the servers state
-
-            Used for getting the text to speak, event_id as well as other passable variables
-        """
-        response = self._get('api', 'states', INPUT_TEXT_ENTITY)
-        if not response:
-            return
-
-        response = self._decode_response(response)
-        if not response:
-            return
-
-        return response
 
     def _decode_response(self, response) -> Optional[dict]:
         """
